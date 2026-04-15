@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Lamar University Campus Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.0/dist/maplibre-gl.css">
+  <script src="https://unpkg.com/maplibre-gl@4.7.0/dist/maplibre-gl.js"></script>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;height:100vh;overflow:hidden;background:#111;}
+    #map{position:absolute;inset:0;}
+
+    /* ── Top bar ── */
+    #topbar{
+      position:absolute;top:0;left:0;right:0;z-index:200;
+      background:linear-gradient(135deg,#C8102E 0%,#8B0000 100%);
+      color:#fff;padding:10px 14px;display:flex;align-items:center;gap:10px;
+      box-shadow:0 2px 12px rgba(0,0,0,.4);
+    }
+    #topbar .logo{font-size:24px;line-height:1;}
+    #topbar .title h1{font-size:15px;font-weight:700;line-height:1.2;}
+    #topbar .title p{font-size:11px;opacity:.8;margin-top:1px;}
+
+    /* ── Search ── */
+    #search-bar{position:absolute;top:66px;left:10px;right:10px;z-index:200;}
+    #search-wrap{position:relative;}
+    #search-icon{position:absolute;left:13px;top:50%;transform:translateY(-50%);font-size:16px;pointer-events:none;}
+    #search-input{
+      width:100%;padding:11px 14px 11px 40px;border-radius:12px;border:none;
+      background:#fff;font-size:15px;box-shadow:0 3px 14px rgba(0,0,0,.25);outline:none;
+    }
+    #search-results{
+      background:#fff;border-radius:12px;margin-top:5px;
+      box-shadow:0 6px 20px rgba(0,0,0,.18);overflow:hidden;display:none;
+    }
+    .sri{
+      padding:11px 14px;border-bottom:1px solid #f2f2f2;cursor:pointer;
+      display:flex;align-items:center;gap:11px;
+    }
+    .sri:hover,.sri:active{background:#fdf0f0;}
+    .sri:last-child{border-bottom:none;}
+    .sri .bicon{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;}
+    .sri .bname{font-size:13px;font-weight:600;color:#1a1a1a;}
+    .sri .btype{font-size:11px;color:#999;margin-top:2px;}
+
+    /* ── Map controls ── */
+    #map-controls{
+      position:absolute;right:10px;top:50%;transform:translateY(-50%);
+      z-index:200;display:flex;flex-direction:column;gap:8px;
+    }
+    .mctrl{
+      width:42px;height:42px;background:#fff;border:none;border-radius:10px;
+      font-size:18px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.18);
+      display:flex;align-items:center;justify-content:center;font-weight:600;color:#333;
+      transition:background .15s;
+    }
+    .mctrl:active{background:#f0f0f0;}
+    .mctrl.active-btn{background:#C8102E;color:#fff;}
+
+    /* ── Layer pills ── */
+    #pills{
+      position:absolute;bottom:72px;left:10px;z-index:200;
+      display:flex;gap:7px;flex-wrap:wrap;
+    }
+    .pill{
+      background:#fff;border:none;border-radius:20px;
+      padding:7px 13px;font-size:12px;font-weight:600;
+      cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.15);color:#444;
+      display:flex;align-items:center;gap:5px;transition:all .15s;
+    }
+    .pill.on{background:#C8102E;color:#fff;}
+
+    /* ── Legend ── */
+    #legend{
+      position:absolute;bottom:120px;right:10px;z-index:200;
+      background:#fff;border-radius:12px;padding:10px 12px;
+      box-shadow:0 2px 10px rgba(0,0,0,.15);font-size:11px;min-width:120px;
+    }
+    #legend-toggle{font-weight:700;color:#333;cursor:pointer;user-select:none;display:flex;justify-content:space-between;align-items:center;}
+    #legend-body{margin-top:8px;}
+    .li{display:flex;align-items:center;gap:7px;margin-bottom:4px;color:#555;}
+    .ld{width:11px;height:11px;border-radius:3px;flex-shrink:0;}
+
+    /* ── Bottom panel ── */
+    #panel{
+      position:absolute;bottom:0;left:0;right:0;z-index:200;
+      background:#fff;border-radius:20px 20px 0 0;
+      box-shadow:0 -4px 24px rgba(0,0,0,.18);
+      transform:translateY(calc(100% - 52px));
+      transition:transform .3s cubic-bezier(.4,0,.2,1);
+      max-height:68vh;overflow:hidden;display:flex;flex-direction:column;
+    }
+    #panel.open{transform:translateY(0);}
+    #panel-drag{padding:8px 0 0;display:flex;flex-direction:column;align-items:center;cursor:pointer;flex-shrink:0;}
+    #panel-drag .bar{width:38px;height:4px;background:#ddd;border-radius:2px;}
+    #panel-drag .peek{height:40px;display:flex;align-items:center;padding:0 16px;width:100%;}
+    #peek-label{font-size:14px;color:#888;font-style:italic;}
+    #panel-scroll{overflow-y:auto;padding:0 16px 24px;flex:1;}
+
+    /* Building info */
+    #bi-name{font-size:19px;font-weight:700;color:#111;margin-bottom:3px;}
+    #bi-meta{font-size:12px;color:#999;margin-bottom:14px;}
+    #bi-actions{display:flex;gap:9px;margin-bottom:14px;}
+    .ab{
+      flex:1;padding:11px;border:none;border-radius:10px;
+      font-size:13px;font-weight:600;cursor:pointer;
+      display:flex;align-items:center;justify-content:center;gap:5px;
+    }
+    .ab.pri{background:#C8102E;color:#fff;}
+    .ab.sec{background:#f0f0f0;color:#333;}
+    #bi-card{background:#fafafa;border-radius:10px;padding:12px;border:1px solid #eee;}
+    #bi-desc{font-size:13px;color:#444;line-height:1.5;margin-bottom:8px;}
+    #bi-hours{font-size:12px;color:#888;display:flex;align-items:flex-start;gap:6px;}
+
+    /* Nav panel */
+    #np-header{display:flex;align-items:center;gap:10px;margin-bottom:12px;}
+    #np-back{background:none;border:none;font-size:20px;cursor:pointer;color:#666;padding:0;}
+    #np-title{font-size:16px;font-weight:700;}
+    #np-summary{
+      background:linear-gradient(135deg,#C8102E,#8B0000);color:#fff;
+      padding:13px 15px;border-radius:12px;margin-bottom:12px;
+      display:flex;justify-content:space-between;align-items:center;
+    }
+    #np-time{font-size:24px;font-weight:700;}
+    #np-dist{font-size:13px;opacity:.85;margin-top:2px;}
+    .ep{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f0f0f0;}
+    .ep:last-of-type{border-bottom:none;margin-bottom:8px;}
+    .dot{width:12px;height:12px;border-radius:50%;flex-shrink:0;}
+    .dot.s{background:#4CAF50;}.dot.e{background:#C8102E;}
+    .ep-lbl{font-size:13px;color:#333;}
+    .step{display:flex;align-items:flex-start;gap:11px;padding:7px 0;border-bottom:1px solid #f8f8f8;}
+    .step:last-child{border-bottom:none;}
+    .si{font-size:19px;flex-shrink:0;margin-top:1px;}
+    .st{font-size:13px;color:#444;line-height:1.4;}
+    .sd{font-size:11px;color:#aaa;margin-top:2px;}
+
+    /* Popup */
+    .maplibregl-popup-content{border-radius:12px!important;padding:13px!important;box-shadow:0 4px 20px rgba(0,0,0,.22)!important;min-width:190px;}
+    .pn{font-size:14px;font-weight:700;color:#1a1a1a;margin-bottom:3px;}
+    .pt{font-size:11px;color:#999;margin-bottom:9px;}
+    .pa{display:flex;gap:7px;}
+    .pb{flex:1;padding:8px;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;}
+    .pb.n{background:#C8102E;color:#fff;}.pb.i{background:#f0f0f0;color:#333;}
+
+    /* Toast */
+    #toast{
+      position:absolute;top:120px;left:50%;transform:translateX(-50%);z-index:300;
+      background:rgba(20,20,20,.85);color:#fff;padding:9px 18px;border-radius:20px;
+      font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap;
+      backdrop-filter:blur(4px);
+    }
+    #toast.show{opacity:1;}
+
+    @media(min-width:700px){
+      #panel{width:360px;left:10px;bottom:10px;right:auto;border-radius:16px;transform:translateY(0);max-height:62vh;}
+      #panel.open{transform:translateY(0);}
+      #panel-drag .peek{display:none;}
+    }
+  </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<!-- Top bar -->
+<div id="topbar">
+  <div class="logo">🎓</div>
+  <div class="title">
+    <h1>Lamar University</h1>
+    <p>Campus Map · Beaumont, TX</p>
+  </div>
+</div>
+
+<!-- Search -->
+<div id="search-bar">
+  <div id="search-wrap">
+    <span id="search-icon">🔍</span>
+    <input id="search-input" type="search" placeholder="Search buildings…" autocomplete="off" autocorrect="off" spellcheck="false">
+  </div>
+  <div id="search-results"></div>
+</div>
+
+<!-- Map controls -->
+<div id="map-controls">
+  <button class="mctrl active-btn" id="btn3d" title="Toggle 3D/2D" onclick="toggle3D()">3D</button>
+  <button class="mctrl" title="My Location" onclick="locateMe()">📍</button>
+  <button class="mctrl" title="Zoom in" onclick="map.zoomIn()">+</button>
+  <button class="mctrl" title="Zoom out" onclick="map.zoomOut()">−</button>
+  <button class="mctrl" title="Reset bearing" onclick="map.easeTo({bearing:0,pitch:45,duration:600})">⌀</button>
+</div>
+
+<!-- Layer pills -->
+<div id="pills">
+  <button class="pill on" id="pill-paths" onclick="toggleLayer('walkways','pill-paths')">🚶 Paths</button>
+  <button class="pill on" id="pill-labels" onclick="toggleLabels()">🏷 Labels</button>
+</div>
+
+<!-- Legend -->
+<div id="legend">
+  <div id="legend-toggle" onclick="toggleLegend()">Building Types <span id="leg-arrow">▲</span></div>
+  <div id="legend-body">
+    <div class="li"><div class="ld" style="background:#C8102E"></div>Academic</div>
+    <div class="li"><div class="ld" style="background:#8B0000"></div>Administration</div>
+    <div class="li"><div class="ld" style="background:#1565C0"></div>Library</div>
+    <div class="li"><div class="ld" style="background:#2E7D32"></div>Recreation</div>
+    <div class="li"><div class="ld" style="background:#E65100"></div>Student Svcs</div>
+    <div class="li"><div class="ld" style="background:#6A1B9A"></div>Housing</div>
+    <div class="li"><div class="ld" style="background:#BF360C"></div>Engineering</div>
+    <div class="li"><div class="ld" style="background:#AD1457"></div>Arts</div>
+    <div class="li"><div class="ld" style="background:#00838F"></div>Health</div>
+  </div>
+</div>
+
+<!-- Bottom panel -->
+<div id="panel">
+  <div id="panel-drag" onclick="togglePanel()">
+    <div class="bar"></div>
+    <div class="peek"><span id="peek-label">Tap a building for details</span></div>
+  </div>
+  <div id="panel-scroll">
+
+    <!-- Building info -->
+    <div id="bi" style="display:none">
+      <div id="bi-name"></div>
+      <div id="bi-meta"></div>
+      <div id="bi-actions">
+        <button class="ab pri" onclick="startNav()">🧭 Directions</button>
+        <button class="ab sec" onclick="closePanel()">✕ Close</button>
+      </div>
+      <div id="bi-card">
+        <div id="bi-desc"></div>
+        <div id="bi-hours"></div>
+      </div>
+    </div>
+
+    <!-- Nav panel -->
+    <div id="np" style="display:none">
+      <div id="np-header">
+        <button id="np-back" onclick="closeNav()">←</button>
+        <span id="np-title">Directions</span>
+      </div>
+      <div id="np-summary">
+        <div>
+          <div id="np-time">—</div>
+          <div id="np-dist">calculating…</div>
+        </div>
+        <span style="font-size:30px">🚶</span>
+      </div>
+      <div class="ep"><div class="dot s"></div><div class="ep-lbl" id="np-from">Starting point</div></div>
+      <div class="ep"><div class="dot e"></div><div class="ep-lbl" id="np-to">Destination</div></div>
+      <div id="np-steps"></div>
+    </div>
+
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  CAMPUS DATA — LAMAR UNIVERSITY, BEAUMONT TX
+// ═══════════════════════════════════════════════════════
+
+const TYPE_COLOR = {
+  academic:'#C8102E', admin:'#8B0000', library:'#1565C0',
+  recreation:'#2E7D32', student:'#E65100', housing:'#6A1B9A',
+  engineering:'#BF360C', arts:'#AD1457', health:'#00838F', support:'#546E7A'
+};
+const TYPE_ICON = {
+  academic:'📚', admin:'🏛️', library:'📖', recreation:'⚽',
+  student:'🎓', housing:'🏠', engineering:'⚙️', arts:'🎨', health:'🏥', support:'🔧'
+};
+
+// Campus center ~ 30.0417, -94.0736  (4400 S ML King Jr Pkwy, Beaumont TX 77705)
+const BUILDINGS = [
+  { id:'plummer',   name:'Plummer Administration Building', abbr:'ADMIN',  type:'admin',
+    cx:-94.0733, cy:30.0427, w:68,  h:46, floors:3,
+    desc:'Main administrative hub: President\'s Office, Registrar, Financial Aid, and Admissions.',
+    hours:'Mon–Fri  8:00 AM – 5:00 PM' },
+
+  { id:'library',   name:'Mary and John Gray Library',       abbr:'LIB',   type:'library',
+    cx:-94.0743, cy:30.0412, w:92,  h:66, floors:5,
+    desc:'Central library with vast print/digital collections, private study rooms, and tech labs.',
+    hours:'Mon–Thu  7:30 AM – 11:00 PM  |  Fri–Sun  10:00 AM – 8:00 PM' },
+
+  { id:'setzer',    name:'Setzer Student Center',            abbr:'SSC',   type:'student',
+    cx:-94.0736, cy:30.0398, w:78,  h:56, floors:2,
+    desc:'Campus life hub: dining, Cardinal Café, student orgs, recreation, and event spaces.',
+    hours:'Mon–Fri  7:00 AM – 10:00 PM  |  Sat–Sun  10:00 AM – 8:00 PM' },
+
+  { id:'montagne',  name:'Montagne Center',                  abbr:'MC',    type:'recreation',
+    cx:-94.0790, cy:30.0447, w:135, h:105,floors:1,
+    desc:'Multi-purpose arena for Cardinals basketball, volleyball, concerts, and convocations.',
+    hours:'Mon–Fri  8:00 AM – 9:00 PM  |  Sat–Sun  10:00 AM – 6:00 PM' },
+
+  { id:'lucas',     name:'Lucas Engineering Building',       abbr:'LENG',  type:'engineering',
+    cx:-94.0707, cy:30.0418, w:78,  h:54, floors:4,
+    desc:'Chemical, Civil, and Mechanical Engineering departments with advanced research labs.',
+    hours:'Mon–Fri  7:00 AM – 9:00 PM' },
+
+  { id:'cherry',    name:'Cherry Engineering Building',      abbr:'CENG',  type:'engineering',
+    cx:-94.0691, cy:30.0427, w:70,  h:50, floors:3,
+    desc:'Electrical Engineering, Computer Science, and Information Technology programs.',
+    hours:'Mon–Fri  7:00 AM – 9:00 PM' },
+
+  { id:'klement',   name:'Karl Klement Hall',                abbr:'KLM',   type:'academic',
+    cx:-94.0723, cy:30.0405, w:82,  h:56, floors:4,
+    desc:'Science building for Biology, Chemistry, Physics, and Earth & Space Sciences.',
+    hours:'Mon–Fri  7:30 AM – 8:00 PM' },
+
+  { id:'bevil',     name:'Bevil Building',                   abbr:'BEV',   type:'academic',
+    cx:-94.0771, cy:30.0393, w:88,  h:60, floors:4,
+    desc:'College of Education: teacher prep, educational leadership, and counseling programs.',
+    hours:'Mon–Fri  8:00 AM – 7:00 PM' },
+
+  { id:'nursing',   name:'Nursing Building',                 abbr:'NURS',  type:'health',
+    cx:-94.0720, cy:30.0388, w:66,  h:50, floors:3,
+    desc:'State-of-the-art nursing program facilities with clinical simulation labs.',
+    hours:'Mon–Fri  7:30 AM – 6:00 PM' },
+
+  { id:'comm',      name:'Communication Building',           abbr:'COMM',  type:'academic',
+    cx:-94.0765, cy:30.0431, w:70,  h:50, floors:3,
+    desc:'Communication, Media, and Fine Arts Communication program classrooms and studios.',
+    hours:'Mon–Fri  8:00 AM – 6:00 PM' },
+
+  { id:'reaud',     name:'Reaud Business Building',          abbr:'BUS',   type:'academic',
+    cx:-94.0761, cy:30.0400, w:82,  h:60, floors:3,
+    desc:'AACSB-accredited College of Business: Accounting, Finance, Management, and Marketing.',
+    hours:'Mon–Fri  8:00 AM – 7:00 PM' },
+
+  { id:'wimberly',  name:'Wimberly Art Building',            abbr:'ART',   type:'arts',
+    cx:-94.0783, cy:30.0436, w:64,  h:46, floors:2,
+    desc:'Fine Arts studios and galleries for Painting, Graphic Design, and Photography.',
+    hours:'Mon–Fri  8:00 AM – 6:00 PM' },
+
+  { id:'brooks',    name:'Brooks-Shivers Theatre',           abbr:'THT',   type:'arts',
+    cx:-94.0752, cy:30.0410, w:60,  h:44, floors:1,
+    desc:'Main campus performance venue for Theatre, Opera, and Music Department productions.',
+    hours:'By performance schedule' },
+
+  { id:'parker',    name:'Carl Parker Building',             abbr:'CPB',   type:'academic',
+    cx:-94.0747, cy:30.0422, w:70,  h:50, floors:4,
+    desc:'Social Sciences: Political Science, History, Psychology, and Sociology departments.',
+    hours:'Mon–Fri  7:30 AM – 7:00 PM' },
+
+  { id:'sears',     name:'Sears Hall (Residence)',           abbr:'SRS',   type:'housing',
+    cx:-94.0711, cy:30.0441, w:54,  h:68, floors:6,
+    desc:'On-campus residence hall with single and double occupancy rooms.',
+    hours:'Open 24 hours' },
+
+  { id:'maes',      name:'MÄES Building',                   abbr:'MAES',  type:'engineering',
+    cx:-94.0695, cy:30.0434, w:64,  h:46, floors:3,
+    desc:'Mechanical and Aerospace Engineering research labs, wind tunnels, and robotics.',
+    hours:'Mon–Fri  7:00 AM – 8:00 PM' },
+
+  { id:'hhp',       name:'Health & Human Performance',       abbr:'HHP',   type:'health',
+    cx:-94.0723, cy:30.0445, w:70,  h:52, floors:2,
+    desc:'Fitness center, gymnasium, and classrooms for Kinesiology and HHP programs.',
+    hours:'Mon–Fri  6:00 AM – 10:00 PM  |  Sat–Sun  8:00 AM – 8:00 PM' },
+
+  { id:'galloway',  name:'Galloway Business & Engineering',  abbr:'GBE',   type:'academic',
+    cx:-94.0744, cy:30.0388, w:68,  h:50, floors:3,
+    desc:'Interdisciplinary programs bridging business and technology. Includes active labs.',
+    hours:'Mon–Fri  8:00 AM – 6:00 PM' },
+
+  { id:'herring',   name:'Herring Hall',                     abbr:'HER',   type:'academic',
+    cx:-94.0729, cy:30.0431, w:60,  h:44, floors:2,
+    desc:'Lecture halls and faculty offices for interdisciplinary social science programs.',
+    hours:'Mon–Fri  8:00 AM – 6:00 PM' },
+
+  { id:'spindletop',name:'Spindletop-Gladys City Museum',    abbr:'SGM',   type:'academic',
+    cx:-94.0697, cy:30.0408, w:58,  h:42, floors:1,
+    desc:'Museum celebrating the historic Spindletop oil boom and Beaumont heritage.',
+    hours:'Tue–Sun  10:00 AM – 5:00 PM' },
+
+  { id:'physical',  name:'Physical Plant',                   abbr:'PP',    type:'support',
+    cx:-94.0753, cy:30.0461, w:85,  h:55, floors:1,
+    desc:'Facilities Management: maintenance, utilities, and campus operations center.',
+    hours:'Mon–Fri  7:00 AM – 4:00 PM' },
+
+  { id:'techsci',   name:'Science & Technology Building',    abbr:'SCI',   type:'academic',
+    cx:-94.0731, cy:30.0418, w:72,  h:50, floors:3,
+    desc:'Shared classrooms, computer labs, and research space for STEM programs.',
+    hours:'Mon–Fri  7:30 AM – 8:00 PM' },
+];
+
+// ── Walkway graph nodes (key intersections + building entrances) ──────────────
+const NODES = {
+  // South entrance / Florida Ave side
+  'S0':[-94.0736, 30.0375], 'S1':[-94.0736, 30.0383], 'S2':[-94.0736, 30.0392],
+  // Central north-south spine
+  'M1':[-94.0736, 30.0401], 'M2':[-94.0736, 30.0411], 'M3':[-94.0736, 30.0422],
+  'M4':[-94.0736, 30.0431], 'M5':[-94.0736, 30.0444],
+  // West lateral corridors
+  'W1':[-94.0751, 30.0401], 'W2':[-94.0763, 30.0411], 'W3':[-94.0775, 30.0421],
+  'W4':[-94.0785, 30.0431], 'W5':[-94.0778, 30.0444],
+  // East lateral corridors
+  'E1':[-94.0721, 30.0401], 'E2':[-94.0707, 30.0411], 'E3':[-94.0693, 30.0421],
+  'E4':[-94.0699, 30.0434], 'E5':[-94.0711, 30.0444],
+  // Cross-campus paths
+  'X1':[-94.0751, 30.0422], 'X2':[-94.0751, 30.0431],
+  'X3':[-94.0721, 30.0431], 'X4':[-94.0721, 30.0392],
+  // Building-level stubs (matching BUILDINGS ids)
+  'plummer':  [-94.0733, 30.0423], 'library':   [-94.0742, 30.0406],
+  'setzer':   [-94.0736, 30.0393], 'montagne':  [-94.0785, 30.0442],
+  'lucas':    [-94.0711, 30.0414], 'cherry':    [-94.0693, 30.0423],
+  'klement':  [-94.0723, 30.0399], 'bevil':     [-94.0771, 30.0389],
+  'nursing':  [-94.0720, 30.0385], 'comm':      [-94.0765, 30.0427],
+  'reaud':    [-94.0761, 30.0396], 'wimberly':  [-94.0781, 30.0431],
+  'brooks':   [-94.0752, 30.0406], 'parker':    [-94.0747, 30.0418],
+  'sears':    [-94.0711, 30.0437], 'maes':      [-94.0695, 30.0430],
+  'hhp':      [-94.0723, 30.0440], 'galloway':  [-94.0744, 30.0385],
+  'herring':  [-94.0729, 30.0427], 'spindletop':[-94.0699, 30.0405],
+  'physical': [-94.0753, 30.0456], 'techsci':   [-94.0731, 30.0415],
+};
+
+// Bidirectional edges
+const EDGES = [
+  // Main N-S spine
+  ['S0','S1'],['S1','S2'],['S2','M1'],['M1','M2'],['M2','M3'],['M3','M4'],['M4','M5'],
+  // West corridor (E-W)
+  ['M1','W1'],['W1','W2'],['W2','W3'],['W3','W4'],['W4','W5'],['W5','M5'],
+  // East corridor (E-W)
+  ['M1','E1'],['E1','E2'],['E2','E3'],['E3','E4'],['E4','E5'],['E5','M5'],
+  // Cross paths
+  ['M3','X1'],['X1','W3'],
+  ['M4','X2'],['X2','W4'],
+  ['M4','X3'],['X3','E4'],
+  ['M2','library'],['library','brooks'],['brooks','M3'],
+  // Diagonal cuts
+  ['S2','X4'],['X4','E1'],
+  // Building stubs to main network
+  ['M3','plummer'],['plummer','X1'],
+  ['M2','library'],
+  ['S2','setzer'],['setzer','S1'],
+  ['W5','montagne'],
+  ['E2','lucas'],['lucas','E1'],
+  ['E3','cherry'],
+  ['E1','klement'],['klement','M1'],
+  ['W1','reaud'],['reaud','bevil'],
+  ['X4','nursing'],['nursing','galloway'],['galloway','M2'],
+  ['W2','comm'],['comm','X1'],
+  ['W3','wimberly'],
+  ['X1','brooks'],
+  ['M3','parker'],['parker','X1'],
+  ['E5','sears'],['sears','hhp'],['hhp','X3'],
+  ['E4','maes'],
+  ['M3','herring'],['herring','X3'],
+  ['E2','spindletop'],
+  ['M4','physical'],
+  ['M3','techsci'],['techsci','plummer'],
+];
+
+// ═══════════════════════════════════════════════════════
+//  GEOMETRY HELPERS
+// ═══════════════════════════════════════════════════════
+
+function bldgPoly(cx, cy, wM, hM, rotDeg) {
+  rotDeg = rotDeg || 0;
+  const latOff = (hM/2) / 111000;
+  const lngOff = (wM/2) / (111000 * Math.cos(cy * Math.PI/180));
+  const r = rotDeg * Math.PI/180;
+  const pts = [[-lngOff,-latOff],[lngOff,-latOff],[lngOff,latOff],[-lngOff,latOff]]
+    .map(([dx,dy]) => [
+      cx + dx*Math.cos(r) - dy*Math.sin(r),
+      cy + dx*Math.sin(r) + dy*Math.cos(r)
+    ]);
+  return [[...pts, pts[0]]];
+}
+
+function haversine(a, b) {
+  const R=6371000, φ1=a[1]*Math.PI/180, φ2=b[1]*Math.PI/180;
+  const Δφ=(b[1]-a[1])*Math.PI/180, Δλ=(b[0]-a[0])*Math.PI/180;
+  const x=Math.sin(Δφ/2)**2+Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
+  return 2*R*Math.asin(Math.sqrt(x));
+}
+
+// ═══════════════════════════════════════════════════════
+//  ROUTING — Dijkstra
+// ═══════════════════════════════════════════════════════
+
+function buildGraph() {
+  const g = {};
+  for (const k of Object.keys(NODES)) g[k] = [];
+  for (const [a,b] of EDGES) {
+    if (!g[a]||!g[b]) continue;
+    const d = haversine(NODES[a], NODES[b]);
+    g[a].push({n:b, d}); g[b].push({n:a, d});
+  }
+  return g;
+}
+const G = buildGraph();
+
+function dijkstra(start, end) {
+  const dist={}, prev={}, vis=new Set();
+  for (const k of Object.keys(G)) dist[k]=Infinity;
+  dist[start]=0;
+  const pq=[[0,start]];
+  while (pq.length) {
+    pq.sort((a,b)=>a[0]-b[0]);
+    const [d,u]=pq.shift();
+    if (vis.has(u)) continue;
+    vis.add(u);
+    if (u===end) break;
+    for (const {n:v,d:w} of (G[u]||[])) {
+      const alt=d+w;
+      if (alt<dist[v]) { dist[v]=alt; prev[v]=u; pq.push([alt,v]); }
+    }
+  }
+  const path=[]; let cur=end;
+  while (cur) { path.unshift(cur); cur=prev[cur]; }
+  return path[0]===start ? {path, totalDist:dist[end]} : null;
+}
+
+function nearestNode(coord) {
+  let best=null, bd=Infinity;
+  for (const [id,c] of Object.entries(NODES)) {
+    const d=haversine(coord,c); if (d<bd) { bd=d; best=id; }
+  }
+  return best;
+}
+
+// ═══════════════════════════════════════════════════════
+//  GeoJSON builders
+// ═══════════════════════════════════════════════════════
+
+function buildingsGeoJSON() {
+  return {
+    type:'FeatureCollection',
+    features: BUILDINGS.map(b=>({
+      type:'Feature', id:b.id,
+      properties:{
+        id:b.id, name:b.name, abbr:b.abbr, type:b.type,
+        floors:b.floors, height:b.floors*4.5,
+        color:TYPE_COLOR[b.type]||'#888'
+      },
+      geometry:{ type:'Polygon', coordinates:bldgPoly(b.cx,b.cy,b.w,b.h) }
+    }))
+  };
+}
+
+function walkwaysGeoJSON() {
+  return {
+    type:'FeatureCollection',
+    features: EDGES.filter(([a,b])=>NODES[a]&&NODES[b]).map(([a,b])=>({
+      type:'Feature', properties:{},
+      geometry:{ type:'LineString', coordinates:[NODES[a],NODES[b]] }
+    }))
+  };
+}
+
+// ═══════════════════════════════════════════════════════
+//  MAP INIT
+// ═══════════════════════════════════════════════════════
+
+const map = new maplibregl.Map({
+  container:'map',
+  style:'https://tiles.openfreemap.org/styles/liberty',
+  center:[-94.0736, 30.0417],
+  zoom:15.6, pitch:48, bearing:-8,
+  maxZoom:20, minZoom:13,
+  maxBounds:[[-94.0973, 30.0249],[-94.0523, 30.0599]]
+});
+
+map.addControl(new maplibregl.NavigationControl({showCompass:true}),'bottom-right');
+
+// State
+let is3D=true, labelsOn=true, legendOpen=true;
+let selBuilding=null, navDest=null, userLoc=null;
+let activePopup=null, userMarker=null;
+
+map.on('load', ()=>{
+
+  map.addSource('buildings',{ type:'geojson', data:buildingsGeoJSON() });
+  map.addSource('walkways', { type:'geojson', data:walkwaysGeoJSON()  });
+  map.addSource('route',    { type:'geojson', data:{type:'FeatureCollection',features:[]} });
+
+  // ── Walkways ──
+  map.addLayer({ id:'walkways', type:'line', source:'walkways',
+    layout:{'line-join':'round','line-cap':'round'},
+    paint:{'line-color':'#FFD600','line-width':2.5,'line-opacity':0.72,'line-dasharray':[2,2]}
+  });
+
+  // ── Buildings fill (2D mode) ──
+  map.addLayer({ id:'bldg-fill', type:'fill', source:'buildings',
+    layout:{visibility:'none'},
+    paint:{'fill-color':['get','color'],'fill-opacity':0.8}
+  });
+
+  // ── Buildings 3D extrusion ──
+  map.addLayer({ id:'bldg-3d', type:'fill-extrusion', source:'buildings',
+    paint:{
+      'fill-extrusion-color':['get','color'],
+      'fill-extrusion-height':['get','height'],
+      'fill-extrusion-base':0,
+      'fill-extrusion-opacity':0.88,
+    }
+  });
+
+  // ── Building outlines ──
+  map.addLayer({ id:'bldg-outline', type:'line', source:'buildings',
+    paint:{'line-color':'rgba(255,255,255,0.7)','line-width':1.2}
+  });
+
+  // ── Building labels ──
+  map.addLayer({ id:'bldg-labels', type:'symbol', source:'buildings',
+    layout:{
+      'text-field':['get','abbr'],
+      'text-size':11,'text-anchor':'center',
+      'symbol-placement':'point','text-allow-overlap':false
+    },
+    paint:{'text-color':'#fff','text-halo-color':'rgba(0,0,0,0.5)','text-halo-width':1.5}
+  });
+
+  // ── Navigation route ──
+  map.addLayer({ id:'route-shadow', type:'line', source:'route',
+    layout:{'line-join':'round','line-cap':'round'},
+    paint:{'line-color':'rgba(0,0,0,0.25)','line-width':8,'line-blur':4}
+  });
+  map.addLayer({ id:'route', type:'line', source:'route',
+    layout:{'line-join':'round','line-cap':'round'},
+    paint:{'line-color':'#00C853','line-width':5,'line-opacity':0.95}
+  });
+  map.addLayer({ id:'route-dots', type:'circle', source:'route',
+    filter:['==','$type','Point'],
+    paint:{'circle-radius':8,'circle-color':'#00C853','circle-stroke-color':'#fff','circle-stroke-width':2}
+  });
+
+  // ── Interactions ──
+  ['bldg-fill','bldg-3d'].forEach(l=>{
+    map.on('click', l, onBldgClick);
+    map.on('mouseenter', l, ()=>map.getCanvas().style.cursor='pointer');
+    map.on('mouseleave', l, ()=>map.getCanvas().style.cursor='');
+  });
+  map.on('click', e=>{
+    const f=map.queryRenderedFeatures(e.point,{layers:['bldg-fill','bldg-3d']});
+    if (!f.length) { if(activePopup){activePopup.remove();activePopup=null;} }
+  });
+});
+
+// ── Building click ──────────────────────────────────────
+function onBldgClick(e) {
+  const props=e.features[0].properties;
+  const b=BUILDINGS.find(x=>x.id===props.id);
+  if (!b) return;
+  selBuilding=b;
+  if (activePopup) activePopup.remove();
+  activePopup=new maplibregl.Popup({offset:28,closeButton:false,maxWidth:'240px'})
+    .setLngLat([b.cx,b.cy])
+    .setHTML(`
+      <div class="pn">${b.name}</div>
+      <div class="pt">${b.abbr} · ${cap(b.type)} · ${b.floors}F</div>
+      <div class="pa">
+        <button class="pb n" onclick="navigateTo('${b.id}')">🧭 Directions</button>
+        <button class="pb i" onclick="openBldgPanel('${b.id}')">ℹ Info</button>
+      </div>`)
+    .addTo(map);
+}
+
+// ═══════════════════════════════════════════════════════
+//  PANELS
+// ═══════════════════════════════════════════════════════
+
+function openBldgPanel(id) {
+  const b=BUILDINGS.find(x=>x.id===id);
+  if (!b) return;
+  selBuilding=b;
+  _show('bi'); _hide('np');
+  $('bi-name').textContent=b.name;
+  $('bi-meta').textContent=`${b.abbr} · ${cap(b.type)} · ${b.floors} floors`;
+  $('bi-desc').textContent=b.desc;
+  $('bi-hours').innerHTML=`🕐 <span style="flex:1">${b.hours}</span>`;
+  openPanel();
+  map.flyTo({center:[b.cx,b.cy],zoom:17.5,pitch:55,duration:900});
+}
+
+function startNav() { if(selBuilding) navigateTo(selBuilding.id); }
+
+function openPanel()  { $('panel').classList.add('open'); }
+function closePanel() {
+  $('panel').classList.remove('open');
+  _hide('bi'); _hide('np');
+  $('peek-label').textContent='Tap a building for details';
+  selBuilding=null;
+}
+function togglePanel() { $('panel').classList.toggle('open'); }
+
+// ═══════════════════════════════════════════════════════
+//  NAVIGATION
+// ═══════════════════════════════════════════════════════
+
+function navigateTo(destId) {
+  if (activePopup){activePopup.remove();activePopup=null;}
+  const dest=BUILDINGS.find(b=>b.id===destId);
+  if (!dest) return;
+  navDest=dest;
+
+  const fromCoord = userLoc || [-94.0736, 30.0375];
+  const fromLabel = userLoc ? 'Your Location' : 'University Dr Entrance';
+
+  const startNode = nearestNode(fromCoord);
+  const endNode   = NODES[destId] ? destId : nearestNode([dest.cx,dest.cy]);
+  const result    = dijkstra(startNode, endNode);
+
+  if (!result) { toast('Route not found'); return; }
+
+  const pts=[fromCoord, ...result.path.map(n=>NODES[n]), [dest.cx,dest.cy]];
+  const totalM=pts.reduce((s,p,i)=>i>0?s+haversine(pts[i-1],p):0, 0);
+  const mins=Math.max(1, Math.ceil(totalM/80));
+
+  // Route line
+  map.getSource('route').setData({
+    type:'FeatureCollection',
+    features:[{ type:'Feature', properties:{}, geometry:{type:'LineString', coordinates:pts} }]
+  });
+
+  // Update nav panel
+  $('np-time').textContent=`${mins} min`;
+  $('np-dist').textContent=`${totalM<1000?Math.round(totalM)+' m':(totalM/1000).toFixed(1)+' km'}  walk`;
+  $('np-from').textContent=fromLabel;
+  $('np-to').textContent=dest.name;
+  $('np-steps').innerHTML=makeSteps(result.path, pts, dest.name);
+
+  _hide('bi'); _show('np');
+  openPanel();
+
+  const bounds=pts.reduce((b,c)=>b.extend(c), new maplibregl.LngLatBounds(pts[0],pts[0]));
+  map.fitBounds(bounds,{padding:{top:160,bottom:340,left:40,right:60},duration:1100});
+}
+
+function makeSteps(nodePath, coords, destName) {
+  if (!nodePath.length) return '';
+  const steps=[{icon:'🟢',text:'Start walking',dist:''}];
+  for (let i=1;i<nodePath.length-1;i++) {
+    const prev=NODES[nodePath[i-1]], curr=NODES[nodePath[i]], next=NODES[nodePath[i+1]];
+    if (!prev||!curr||!next) continue;
+    const b1=Math.atan2(curr[0]-prev[0],curr[1]-prev[1])*180/Math.PI;
+    const b2=Math.atan2(next[0]-curr[0],next[1]-curr[1])*180/Math.PI;
+    let turn=b2-b1;
+    if (turn>180)turn-=360; if(turn<-180)turn+=360;
+    const d=Math.round(haversine(prev,curr));
+    if (Math.abs(turn)>25)
+      steps.push({icon:turn>0?'↪️':'↩️',text:turn>0?'Turn right':'Turn left',dist:`After ${d} m`});
+  }
+  const last=coords[coords.length-2], dest=coords[coords.length-1];
+  steps.push({icon:'🏁',text:`Arrive at ${destName}`,dist:`In ${Math.round(haversine(last,dest))} m`});
+  return steps.map(s=>`
+    <div class="step">
+      <div class="si">${s.icon}</div>
+      <div><div class="st">${s.text}</div><div class="sd">${s.dist}</div></div>
+    </div>`).join('');
+}
+
+function closeNav() {
+  _hide('np'); _hide('bi');
+  $('panel').classList.remove('open');
+  map.getSource('route').setData({type:'FeatureCollection',features:[]});
+  navDest=null;
+}
+
+// ═══════════════════════════════════════════════════════
+//  SEARCH
+// ═══════════════════════════════════════════════════════
+
+const si=$('search-input'), sr=$('search-results');
+
+si.addEventListener('input', e=>{
+  const q=e.target.value.trim().toLowerCase();
+  if (!q) { sr.style.display='none'; return; }
+  const matches=BUILDINGS.filter(b=>
+    b.name.toLowerCase().includes(q)||b.abbr.toLowerCase().includes(q)||
+    b.type.toLowerCase().includes(q)||b.desc.toLowerCase().includes(q)
+  ).slice(0,7);
+  if (!matches.length) { sr.style.display='none'; return; }
+  sr.innerHTML=matches.map(b=>`
+    <div class="sri" onclick="selectResult('${b.id}')">
+      <div class="bicon" style="background:${TYPE_COLOR[b.type]}22;color:${TYPE_COLOR[b.type]}">${TYPE_ICON[b.type]||'🏢'}</div>
+      <div><div class="bname">${b.name}</div><div class="btype">${b.abbr} · ${cap(b.type)}</div></div>
+    </div>`).join('');
+  sr.style.display='block';
+});
+
+function selectResult(id) {
+  sr.style.display='none'; si.value='';
+  openBldgPanel(id);
+  if(activePopup){activePopup.remove();activePopup=null;}
+}
+
+map.on('click',()=>{ sr.style.display='none'; });
+document.addEventListener('click',e=>{ if(!e.target.closest('#search-bar')) sr.style.display='none'; });
+
+// ═══════════════════════════════════════════════════════
+//  CONTROLS
+// ═══════════════════════════════════════════════════════
+
+function toggle3D() {
+  is3D=!is3D;
+  map.setPitch(is3D?48:0);
+  map.setLayoutProperty('bldg-3d','visibility',is3D?'visible':'none');
+  map.setLayoutProperty('bldg-fill','visibility',is3D?'none':'visible');
+  const btn=$('btn3d');
+  btn.textContent=is3D?'3D':'2D';
+  btn.classList.toggle('active-btn',is3D);
+  toast(is3D?'3D View enabled':'2D Map view');
+}
+
+function toggleLayer(layerId, pillId) {
+  const vis=map.getLayoutProperty(layerId,'visibility')||'visible';
+  const next=vis==='visible'?'none':'visible';
+  map.setLayoutProperty(layerId,'visibility',next);
+  $(pillId).classList.toggle('on', next==='visible');
+  toast(next==='visible'?'Paths shown':'Paths hidden');
+}
+
+function toggleLabels() {
+  labelsOn=!labelsOn;
+  map.setLayoutProperty('bldg-labels','visibility',labelsOn?'visible':'none');
+  $('pill-labels').classList.toggle('on',labelsOn);
+  toast(labelsOn?'Labels shown':'Labels hidden');
+}
+
+function toggleLegend() {
+  legendOpen=!legendOpen;
+  $('legend-body').style.display=legendOpen?'block':'none';
+  $('leg-arrow').textContent=legendOpen?'▲':'▼';
+}
+
+function locateMe() {
+  if(!navigator.geolocation){toast('Geolocation not supported');return;}
+  toast('Finding your location…');
+  navigator.geolocation.getCurrentPosition(pos=>{
+    userLoc=[pos.coords.longitude,pos.coords.latitude];
+    if(userMarker) userMarker.remove();
+    userMarker=new maplibregl.Marker({color:'#4CAF50'})
+      .setLngLat(userLoc)
+      .setPopup(new maplibregl.Popup().setHTML('<strong>📍 You are here</strong>'))
+      .addTo(map);
+    map.flyTo({center:userLoc,zoom:17,duration:900});
+    toast('📍 Location found!');
+  },()=>toast('Location unavailable — using campus entrance'));
+}
+
+// ═══════════════════════════════════════════════════════
+//  UTILS
+// ═══════════════════════════════════════════════════════
+
+function $(id){return document.getElementById(id);}
+function _show(id){$(id).style.display='block';}
+function _hide(id){$(id).style.display='none';}
+function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
+let toastTimer;
+function toast(msg){
+  const el=$('toast'); el.textContent=msg; el.classList.add('show');
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.classList.remove('show'),2400);
+}
+
+// Expose for inline onclick handlers
+window.navigateTo=navigateTo;
+window.openBldgPanel=openBldgPanel;
+</script>
+</body>
+</html>
