@@ -379,10 +379,25 @@ const BUILDINGS = [
     desc:'Facilities Management: maintenance, utilities, and campus operations center.',
     hours:'Mon–Fri  7:00 AM – 4:00 PM' },
 
-  { id:'techsci',   name:'Science & Technology Building',    abbr:'SCI',   type:'academic',
-    cx:-94.0731, cy:30.0418, w:72,  h:50, floors:3,
-    desc:'Shared classrooms, computer labs, and research space for STEM programs.',
-    hours:'Mon–Fri  7:30 AM – 8:00 PM' },
+  { id:'dorm1',     name:'Dormitory A',                abbr:'DORM-A', type:'housing',
+    cx:-94.0715, cy:30.0435, w:60,  h:80, floors:8,
+    desc:'Student residence hall with modern amenities and study lounges.',
+    hours:'Open 24 hours' },
+
+  { id:'dorm2',     name:'Dormitory B',                abbr:'DORM-B', type:'housing',
+    cx:-94.0705, cy:30.0445, w:55,  h:75, floors:7,
+    desc:'On-campus housing with community spaces and recreational areas.',
+    hours:'Open 24 hours' },
+
+  { id:'gym',       name:'University Gymnasium',       abbr:'GYM',    type:'recreation',
+    cx:-94.0755, cy:30.0455, w:90,  h:110,floors:2,
+    desc:'Main gymnasium for basketball, volleyball, and fitness activities.',
+    hours:'Mon–Fri  6:00 AM – 10:00 PM  |  Sat–Sun  8:00 AM – 8:00 PM' },
+
+  { id:'parking1',  name:'Main Parking Garage',        abbr:'PARK-1', type:'support',
+    cx:-94.0740, cy:30.0465, w:85,  h:65, floors:4,
+    desc:'Multi-level parking facility for students and visitors.',
+    hours:'Open 24 hours' },
 ];
 
 // ── Walkway graph nodes (key intersections + building entrances) ──────────────
@@ -413,6 +428,8 @@ const NODES = {
   'hhp':      [-94.0723, 30.0440], 'galloway':  [-94.0744, 30.0385],
   'herring':  [-94.0729, 30.0427], 'spindletop':[-94.0699, 30.0405],
   'physical': [-94.0753, 30.0456], 'techsci':   [-94.0731, 30.0415],
+  'dorm1':    [-94.0715, 30.0435], 'dorm2':     [-94.0705, 30.0445],
+  'gym':      [-94.0755, 30.0455], 'parking1':  [-94.0740, 30.0465],
 };
 
 // Bidirectional edges
@@ -450,6 +467,8 @@ const EDGES = [
   ['E2','spindletop'],
   ['M4','physical'],
   ['M3','techsci'],['techsci','plummer'],
+  ['E5','dorm1'],['dorm1','dorm2'],['dorm2','M5'],
+  ['M5','gym'],['gym','parking1'],['parking1','physical'],
 ];
 
 // ═══════════════════════════════════════════════════════
