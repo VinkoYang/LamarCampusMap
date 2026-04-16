@@ -400,76 +400,144 @@ const BUILDINGS = [
     hours:'Open 24 hours' },
 ];
 
-// ── Walkway graph nodes (key intersections + building entrances) ──────────────
-const NODES = {
-  // South entrance / Florida Ave side
-  'S0':[-94.0736, 30.0375], 'S1':[-94.0736, 30.0383], 'S2':[-94.0736, 30.0392],
-  // Central north-south spine
-  'M1':[-94.0736, 30.0401], 'M2':[-94.0736, 30.0411], 'M3':[-94.0736, 30.0422],
-  'M4':[-94.0736, 30.0431], 'M5':[-94.0736, 30.0444],
-  // West lateral corridors
-  'W1':[-94.0751, 30.0401], 'W2':[-94.0763, 30.0411], 'W3':[-94.0775, 30.0421],
-  'W4':[-94.0785, 30.0431], 'W5':[-94.0778, 30.0444],
-  // East lateral corridors
-  'E1':[-94.0721, 30.0401], 'E2':[-94.0707, 30.0411], 'E3':[-94.0693, 30.0421],
-  'E4':[-94.0699, 30.0434], 'E5':[-94.0711, 30.0444],
-  // Cross-campus paths
-  'X1':[-94.0751, 30.0422], 'X2':[-94.0751, 30.0431],
-  'X3':[-94.0721, 30.0431], 'X4':[-94.0721, 30.0392],
-  // Building-level stubs (matching BUILDINGS ids)
-  'plummer':  [-94.0733, 30.0423], 'library':   [-94.0742, 30.0406],
-  'setzer':   [-94.0736, 30.0393], 'montagne':  [-94.0785, 30.0442],
-  'lucas':    [-94.0711, 30.0414], 'cherry':    [-94.0693, 30.0423],
-  'klement':  [-94.0723, 30.0399], 'bevil':     [-94.0771, 30.0389],
-  'nursing':  [-94.0720, 30.0385], 'comm':      [-94.0765, 30.0427],
-  'reaud':    [-94.0761, 30.0396], 'wimberly':  [-94.0781, 30.0431],
-  'brooks':   [-94.0752, 30.0406], 'parker':    [-94.0747, 30.0418],
-  'sears':    [-94.0711, 30.0437], 'maes':      [-94.0695, 30.0430],
-  'hhp':      [-94.0723, 30.0440], 'galloway':  [-94.0744, 30.0385],
-  'herring':  [-94.0729, 30.0427], 'spindletop':[-94.0699, 30.0405],
-  'physical': [-94.0753, 30.0456], 'techsci':   [-94.0731, 30.0415],
-  'dorm1':    [-94.0715, 30.0435], 'dorm2':     [-94.0705, 30.0445],
-  'gym':      [-94.0755, 30.0455], 'parking1':  [-94.0740, 30.0465],
-};
+// ═══════════════════════════════════════════════════════
+//  ROUTING GRAPH FROM OSM PATHS (lamar_paths.geojson)
+// ═══════════════════════════════════════════════════════
+let PATHS_DATA = null;
+let GRAPH = {};
+let NODE_COORD = {};
+let coordToNode = {};
+let nodeIdCounter = 0;
+const SNAP_DIST = 4.5; // meters
 
-// Bidirectional edges
-const EDGES = [
-  // Main N-S spine
-  ['S0','S1'],['S1','S2'],['S2','M1'],['M1','M2'],['M2','M3'],['M3','M4'],['M4','M5'],
-  // West corridor (E-W)
-  ['M1','W1'],['W1','W2'],['W2','W3'],['W3','W4'],['W4','W5'],['W5','M5'],
-  // East corridor (E-W)
-  ['M1','E1'],['E1','E2'],['E2','E3'],['E3','E4'],['E4','E5'],['E5','M5'],
-  // Cross paths
-  ['M3','X1'],['X1','W3'],
-  ['M4','X2'],['X2','W4'],
-  ['M4','X3'],['X3','E4'],
-  ['M2','library'],['library','brooks'],['brooks','M3'],
-  // Diagonal cuts
-  ['S2','X4'],['X4','E1'],
-  // Building stubs to main network
-  ['M3','plummer'],['plummer','X1'],
-  ['M2','library'],
-  ['S2','setzer'],['setzer','S1'],
-  ['W5','montagne'],
-  ['E2','lucas'],['lucas','E1'],
-  ['E3','cherry'],
-  ['E1','klement'],['klement','M1'],
-  ['W1','reaud'],['reaud','bevil'],
-  ['X4','nursing'],['nursing','galloway'],['galloway','M2'],
-  ['W2','comm'],['comm','X1'],
-  ['W3','wimberly'],
-  ['X1','brooks'],
-  ['M3','parker'],['parker','X1'],
-  ['E5','sears'],['sears','hhp'],['hhp','X3'],
-  ['E4','maes'],
-  ['M3','herring'],['herring','X3'],
-  ['E2','spindletop'],
-  ['M4','physical'],
-  ['M3','techsci'],['techsci','plummer'],
-  ['E5','dorm1'],['dorm1','dorm2'],['dorm2','M5'],
-  ['M5','gym'],['gym','parking1'],['parking1','physical'],
-];
+function getNodeId(coord) {
+  const key = coord[0].toFixed(6)+','+coord[1].toFixed(6);
+  if (!coordToNode[key]) {
+    const id = 'n'+(nodeIdCounter++);
+    coordToNode[key] = id;
+    NODE_COORD[id] = coord.slice();
+    GRAPH[id] = [];
+  }
+  return coordToNode[key];
+}
+
+function addEdge(a, b, d) {
+  if (a === b) return;
+  GRAPH[a] = GRAPH[a] || [];
+  GRAPH[b] = GRAPH[b] || [];
+  GRAPH[a].push({to: b, d});
+  GRAPH[b].push({to: a, d});
+}
+
+function buildRoutingGraph(geojson) {
+  PATHS_DATA = geojson;
+  GRAPH = {};
+  NODE_COORD = {};
+  coordToNode = {};
+  nodeIdCounter = 0;
+
+  geojson.features.forEach(feature => {
+    if (feature.geometry.type !== 'LineString') return;
+    const coords = feature.geometry.coordinates;
+    for (let i = 0; i < coords.length - 1; i++) {
+      const a = coords[i];
+      const b = coords[i + 1];
+      const ida = getNodeId(a);
+      const idb = getNodeId(b);
+      addEdge(ida, idb, haversine(a, b));
+    }
+  });
+
+  snapNodes();
+  console.log('Routing graph nodes:', Object.keys(GRAPH).length);
+}
+
+function snapNodes() {
+  const nodes = Object.entries(NODE_COORD);
+  for (let i = 0; i < nodes.length; i++) {
+    const [idA, coordA] = nodes[i];
+    if (!GRAPH[idA]) continue;
+    for (let j = i + 1; j < nodes.length; j++) {
+      const [idB, coordB] = nodes[j];
+      if (!GRAPH[idB]) continue;
+      if (haversine(coordA, coordB) < SNAP_DIST) {
+        mergeNodes(idA, idB);
+      }
+    }
+  }
+}
+
+function mergeNodes(keepId, removeId) {
+  if (keepId === removeId || !GRAPH[keepId] || !GRAPH[removeId]) return;
+  GRAPH[keepId].push(...GRAPH[removeId]);
+  delete GRAPH[removeId];
+  delete NODE_COORD[removeId];
+
+  for (const edges of Object.values(GRAPH)) {
+    edges.forEach(edge => {
+      if (edge.to === removeId) edge.to = keepId;
+    });
+  }
+
+  const seen = new Set();
+  GRAPH[keepId] = GRAPH[keepId].filter(edge => {
+    if (edge.to === keepId) return false;
+    const key = `${edge.to}@${Math.round(edge.d*100)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function dijkstra(start, end) {
+  const dist = {};
+  const prev = {};
+  const visited = new Set();
+  Object.keys(GRAPH).forEach(k => dist[k] = Infinity);
+  dist[start] = 0;
+
+  while (true) {
+    let u = null;
+    let best = Infinity;
+    for (const k in dist) {
+      if (!visited.has(k) && dist[k] < best) {
+        best = dist[k];
+        u = k;
+      }
+    }
+    if (!u || u === end) break;
+    visited.add(u);
+
+    GRAPH[u].forEach(({to, d}) => {
+      const alt = dist[u] + d;
+      if (alt < dist[to]) {
+        dist[to] = alt;
+        prev[to] = u;
+      }
+    });
+  }
+
+  const path = [];
+  let cur = end;
+  while (cur) {
+    path.unshift(cur);
+    cur = prev[cur];
+  }
+  return path[0] === start ? {path, totalDist: dist[end]} : null;
+}
+
+function nearestGraphNode(coord) {
+  let best = null;
+  let bestD = Infinity;
+  for (const [id, c] of Object.entries(NODE_COORD)) {
+    const d = haversine(coord, c);
+    if (d < bestD) {
+      bestD = d;
+      best = id;
+    }
+  }
+  return best;
+}
 
 // ═══════════════════════════════════════════════════════
 //  OSM BUILDINGS DATA (Loaded from LamarCampus.geojson)
@@ -501,43 +569,6 @@ function haversine(a, b) {
 }
 
 // ═══════════════════════════════════════════════════════
-//  ROUTING — disabled (paths loaded from external GeoJSON)
-// ═══════════════════════════════════════════════════════
-
-function dijkstra(start, end) {
-  const dist={}, prev={}, vis=new Set();
-  for (const k of Object.keys(NODES)) dist[k]=Infinity;
-  dist[start]=0;
-  const pq=[[0,start]];
-  while (pq.length) {
-    pq.sort((a,b)=>a[0]-b[0]);
-    const [d,u]=pq.shift();
-    if (vis.has(u)) continue;
-    vis.add(u);
-    if (u===end) break;
-    for (const [a,b] of EDGES) {
-      if ((a===u && NODES[b]) || (b===u && NODES[a])) {
-        const v=(a===u)?b:a;
-        const w=haversine(NODES[u],NODES[v]);
-        const alt=d+w;
-        if (alt<dist[v]) { dist[v]=alt; prev[v]=u; pq.push([alt,v]); }
-      }
-    }
-  }
-  const path=[]; let cur=end;
-  while (cur) { path.unshift(cur); cur=prev[cur]; }
-  return path[0]===start ? {path, totalDist:dist[end]} : null;
-}
-
-function nearestNode(coord) {
-  let best=null, bd=Infinity;
-  for (const [id,c] of Object.entries(NODES)) {
-    const d=haversine(coord,c); if (d<bd) { bd=d; best=id; }
-  }
-  return best;
-}
-
-// ═══════════════════════════════════════════════════════
 //  MAP INIT
 // ═══════════════════════════════════════════════════════
 
@@ -562,8 +593,11 @@ map.on('load', async ()=>{
   // ── OSM Buildings (Loaded from GeoJSON file) ──
   const osmBuildingsRes = await fetch('LamarCampus.geojson');
   const osmBuildingsData = await osmBuildingsRes.json();
+  const pathsRes = await fetch('lamar_paths.geojson');
+  const pathsData = await pathsRes.json();
+  buildRoutingGraph(pathsData);
   map.addSource('osm-buildings', { type:'geojson', data:osmBuildingsData });
-  map.addSource('paths', { type: 'geojson', data: './lamar_paths.geojson' });
+  map.addSource('paths', { type:'geojson', data: pathsData });
   map.addSource('route',    { type:'geojson', data:{type:'FeatureCollection',features:[]} });
 
   // ── Paths (from external GeoJSON) ──
@@ -593,23 +627,36 @@ map.on('load', async ()=>{
     paint:{'line-color':'rgba(255,255,255,0.8)','line-width':1.4}
   });
 
-  // ── OSM Building labels (Real Names) ──
+  // ── OSM Building labels (FIXED & WORKING) ──
   map.addLayer({
     id:'osm-bldg-labels',
     type:'symbol',
     source:'osm-buildings',
+    minzoom:13,
     layout:{
-      'text-field':['get','name'],
-      'text-size':12,
-      'text-anchor':'center',
-      'text-max-width':10
+      'text-field': [
+        'coalesce',
+        ['get','name'],
+        ['get','abbr'],
+        ['get','@id']
+      ],
+      'text-size': 12,
+      'symbol-placement': 'point',
+      'text-anchor': 'center',
+      'text-allow-overlap': true,
+      'text-ignore-placement': true,
+      'text-pitch-alignment': 'viewport',
+      'text-rotation-alignment': 'viewport'
     },
     paint:{
-      'text-color':'#fff',
-      'text-halo-color':'rgba(0,0,0,0.6)',
-      'text-halo-width':1.4
+      'text-color':'#ffffff',
+      'text-halo-color':'rgba(0,0,0,0.7)',
+      'text-halo-width':1.6
     }
   });
+
+  console.log('Labels layer added:', map.getLayer('osm-bldg-labels'));
+  console.log('Labels visibility:', map.getLayoutProperty('osm-bldg-labels', 'visibility'));
 
   // ── Navigation route ──
   map.addLayer({ id:'route-shadow', type:'line', source:'route',
@@ -700,13 +747,13 @@ function navigateTo(destId) {
   const fromCoord = userLoc || [-94.0736, 30.0375];
   const fromLabel = userLoc ? 'Your Location' : 'University Dr Entrance';
 
-  const startNode = nearestNode(fromCoord);
-  const endNode   = NODES[destId] ? destId : nearestNode([dest.cx,dest.cy]);
-  const result    = dijkstra(startNode, endNode);
+  const startNode = nearestGraphNode(fromCoord);
+  const endNode = nearestGraphNode([dest.cx, dest.cy]);
+  const result = dijkstra(startNode, endNode);
 
   if (!result) { toast('Route not found'); return; }
 
-  const pts=[fromCoord, ...result.path.map(n=>NODES[n]), [dest.cx,dest.cy]];
+  const pts = [fromCoord, ...result.path.map(id => NODE_COORD[id]), [dest.cx, dest.cy]];
   const totalM=pts.reduce((s,p,i)=>i>0?s+haversine(pts[i-1],p):0, 0);
   const mins=Math.max(1, Math.ceil(totalM/80));
 
@@ -734,17 +781,20 @@ function makeSteps(nodePath, coords, destName) {
   if (!nodePath.length) return '';
   const steps=[{icon:'🟢',text:'Start walking',dist:''}];
   for (let i=1;i<nodePath.length-1;i++) {
-    const prev=NODES[nodePath[i-1]], curr=NODES[nodePath[i]], next=NODES[nodePath[i+1]];
+    const prev = NODE_COORD[nodePath[i-1]];
+    const curr = NODE_COORD[nodePath[i]];
+    const next = NODE_COORD[nodePath[i+1]];
     if (!prev||!curr||!next) continue;
-    const b1=Math.atan2(curr[0]-prev[0],curr[1]-prev[1])*180/Math.PI;
-    const b2=Math.atan2(next[0]-curr[0],next[1]-curr[1])*180/Math.PI;
-    let turn=b2-b1;
-    if (turn>180)turn-=360; if(turn<-180)turn+=360;
-    const d=Math.round(haversine(prev,curr));
-    if (Math.abs(turn)>25)
+    const b1 = Math.atan2(curr[0]-prev[0], curr[1]-prev[1]) * 180/Math.PI;
+    const b2 = Math.atan2(next[0]-curr[0], next[1]-curr[1]) * 180/Math.PI;
+    let turn = b2 - b1;
+    if (turn > 180) turn -= 360;
+    if (turn < -180) turn += 360;
+    const d = Math.round(haversine(prev,curr));
+    if (Math.abs(turn) > 25)
       steps.push({icon:turn>0?'↪️':'↩️',text:turn>0?'Turn right':'Turn left',dist:`After ${d} m`});
   }
-  const last=coords[coords.length-2], dest=coords[coords.length-1];
+  const last = coords[coords.length-2], dest = coords[coords.length-1];
   steps.push({icon:'🏁',text:`Arrive at ${destName}`,dist:`In ${Math.round(haversine(last,dest))} m`});
   return steps.map(s=>`
     <div class="step">
@@ -814,7 +864,7 @@ function toggleLayer(layerId, pillId) {
 
 function toggleLabels() {
   labelsOn=!labelsOn;
-  map.setLayoutProperty('bldg-labels','visibility',labelsOn?'visible':'none');
+  map.setLayoutProperty('osm-bldg-labels','visibility',labelsOn?'visible':'none');
   $('pill-labels').classList.toggle('on',labelsOn);
   toast(labelsOn?'Labels shown':'Labels hidden');
 }
