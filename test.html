@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>测试 GeoJSON 加载</title>
+</head>
+<body>
+  <h1>测试 Campus Map 修改</h1>
+  <div id="results"></div>
+
+  <script>
+    const results = document.getElementById('results');
+    
+    // 测试 1: 检查 GeoJSON 文件是否存在
+    fetch('LamarCampus.geojson')
+      .then(res => {
+        results.innerHTML += `<p>✓ GeoJSON 文件可以加载 (HTTP ${res.status})</p>`;
+        return res.json();
+      })
+      .then(data => {
+        results.innerHTML += `<p>✓ GeoJSON 是有效的 JSON</p>`;
+        results.innerHTML += `<p>✓ 类型: ${data.type}</p>`;
+        results.innerHTML += `<p>✓ 建筑数量: ${data.features.length}</p>`;
+        
+        // 检查第一个建筑
+        if (data.features[0]) {
+          const first = data.features[0];
+          results.innerHTML += `<p>✓ 第一个建筑: ${first.properties.name}</p>`;
+        }
+        
+        results.innerHTML += `<p><strong style="color:green">✓ 所有测试通过！</strong></p>`;
+      })
+      .catch(err => {
+        results.innerHTML += `<p style="color:red">✗ 错误: ${err.message}</p>`;
+      });
+  </script>
+</body>
+</html>

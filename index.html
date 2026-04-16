@@ -472,6 +472,11 @@ const EDGES = [
 ];
 
 // ═══════════════════════════════════════════════════════
+//  OSM BUILDINGS DATA (Loaded from LamarCampus.geojson)
+// ═══════════════════════════════════════════════════════
+
+
+// ═══════════════════════════════════════════════════════
 //  GEOMETRY HELPERS
 // ═══════════════════════════════════════════════════════
 
@@ -496,24 +501,12 @@ function haversine(a, b) {
 }
 
 // ═══════════════════════════════════════════════════════
-//  ROUTING — Dijkstra
+//  ROUTING — disabled (paths loaded from external GeoJSON)
 // ═══════════════════════════════════════════════════════
-
-function buildGraph() {
-  const g = {};
-  for (const k of Object.keys(NODES)) g[k] = [];
-  for (const [a,b] of EDGES) {
-    if (!g[a]||!g[b]) continue;
-    const d = haversine(NODES[a], NODES[b]);
-    g[a].push({n:b, d}); g[b].push({n:a, d});
-  }
-  return g;
-}
-const G = buildGraph();
 
 function dijkstra(start, end) {
   const dist={}, prev={}, vis=new Set();
-  for (const k of Object.keys(G)) dist[k]=Infinity;
+  for (const k of Object.keys(NODES)) dist[k]=Infinity;
   dist[start]=0;
   const pq=[[0,start]];
   while (pq.length) {
@@ -522,9 +515,13 @@ function dijkstra(start, end) {
     if (vis.has(u)) continue;
     vis.add(u);
     if (u===end) break;
-    for (const {n:v,d:w} of (G[u]||[])) {
-      const alt=d+w;
-      if (alt<dist[v]) { dist[v]=alt; prev[v]=u; pq.push([alt,v]); }
+    for (const [a,b] of EDGES) {
+      if ((a===u && NODES[b]) || (b===u && NODES[a])) {
+        const v=(a===u)?b:a;
+        const w=haversine(NODES[u],NODES[v]);
+        const alt=d+w;
+        if (alt<dist[v]) { dist[v]=alt; prev[v]=u; pq.push([alt,v]); }
+      }
     }
   }
   const path=[]; let cur=end;
@@ -538,35 +535,6 @@ function nearestNode(coord) {
     const d=haversine(coord,c); if (d<bd) { bd=d; best=id; }
   }
   return best;
-}
-
-// ═══════════════════════════════════════════════════════
-//  GeoJSON builders
-// ═══════════════════════════════════════════════════════
-
-function buildingsGeoJSON() {
-  return {
-    type:'FeatureCollection',
-    features: BUILDINGS.map(b=>({
-      type:'Feature', id:b.id,
-      properties:{
-        id:b.id, name:b.name, abbr:b.abbr, type:b.type,
-        floors:b.floors, height:b.floors*4.5,
-        color:TYPE_COLOR[b.type]||'#888'
-      },
-      geometry:{ type:'Polygon', coordinates:bldgPoly(b.cx,b.cy,b.w,b.h) }
-    }))
-  };
-}
-
-function walkwaysGeoJSON() {
-  return {
-    type:'FeatureCollection',
-    features: EDGES.filter(([a,b])=>NODES[a]&&NODES[b]).map(([a,b])=>({
-      type:'Feature', properties:{},
-      geometry:{ type:'LineString', coordinates:[NODES[a],NODES[b]] }
-    }))
-  };
 }
 
 // ═══════════════════════════════════════════════════════
@@ -589,47 +557,58 @@ let is3D=true, labelsOn=true, legendOpen=true;
 let selBuilding=null, navDest=null, userLoc=null;
 let activePopup=null, userMarker=null;
 
-map.on('load', ()=>{
+map.on('load', async ()=>{
 
-  map.addSource('buildings',{ type:'geojson', data:buildingsGeoJSON() });
-  map.addSource('walkways', { type:'geojson', data:walkwaysGeoJSON()  });
+  // ── OSM Buildings (Loaded from GeoJSON file) ──
+  const osmBuildingsRes = await fetch('LamarCampus.geojson');
+  const osmBuildingsData = await osmBuildingsRes.json();
+  map.addSource('osm-buildings', { type:'geojson', data:osmBuildingsData });
+  map.addSource('paths', { type: 'geojson', data: './lamar_paths.geojson' });
   map.addSource('route',    { type:'geojson', data:{type:'FeatureCollection',features:[]} });
 
-  // ── Walkways ──
-  map.addLayer({ id:'walkways', type:'line', source:'walkways',
+  // ── Paths (from external GeoJSON) ──
+  map.addLayer({ id:'paths', type:'line', source:'paths',
     layout:{'line-join':'round','line-cap':'round'},
     paint:{'line-color':'#FFD600','line-width':2.5,'line-opacity':0.72,'line-dasharray':[2,2]}
   });
 
-  // ── Buildings fill (2D mode) ──
-  map.addLayer({ id:'bldg-fill', type:'fill', source:'buildings',
-    layout:{visibility:'none'},
-    paint:{'fill-color':['get','color'],'fill-opacity':0.8}
-  });
-
-  // ── Buildings 3D extrusion ──
-  map.addLayer({ id:'bldg-3d', type:'fill-extrusion', source:'buildings',
+  // ── OSM Buildings 3D extrusion (Real Data) ──
+  map.addLayer({
+    id:'osm-bldg-3d',
+    type:'fill-extrusion',
+    source:'osm-buildings',
     paint:{
-      'fill-extrusion-color':['get','color'],
-      'fill-extrusion-height':['get','height'],
+      'fill-extrusion-color':'#C8102E',
+      'fill-extrusion-height':['coalesce',['*',['to-number',['get','levels']],4.5],12],
       'fill-extrusion-base':0,
-      'fill-extrusion-opacity':0.88,
+      'fill-extrusion-opacity':0.9
     }
   });
 
-  // ── Building outlines ──
-  map.addLayer({ id:'bldg-outline', type:'line', source:'buildings',
-    paint:{'line-color':'rgba(255,255,255,0.7)','line-width':1.2}
+  // ── OSM Building outlines ──
+  map.addLayer({
+    id:'osm-bldg-outline',
+    type:'line',
+    source:'osm-buildings',
+    paint:{'line-color':'rgba(255,255,255,0.8)','line-width':1.4}
   });
 
-  // ── Building labels ──
-  map.addLayer({ id:'bldg-labels', type:'symbol', source:'buildings',
+  // ── OSM Building labels (Real Names) ──
+  map.addLayer({
+    id:'osm-bldg-labels',
+    type:'symbol',
+    source:'osm-buildings',
     layout:{
-      'text-field':['get','abbr'],
-      'text-size':11,'text-anchor':'center',
-      'symbol-placement':'point','text-allow-overlap':false
+      'text-field':['get','name'],
+      'text-size':12,
+      'text-anchor':'center',
+      'text-max-width':10
     },
-    paint:{'text-color':'#fff','text-halo-color':'rgba(0,0,0,0.5)','text-halo-width':1.5}
+    paint:{
+      'text-color':'#fff',
+      'text-halo-color':'rgba(0,0,0,0.6)',
+      'text-halo-width':1.4
+    }
   });
 
   // ── Navigation route ──
@@ -647,34 +626,37 @@ map.on('load', ()=>{
   });
 
   // ── Interactions ──
-  ['bldg-fill','bldg-3d'].forEach(l=>{
-    map.on('click', l, onBldgClick);
+  ['osm-bldg-3d'].forEach(l=>{
+    map.on('click', l, onOSMBldgClick);
     map.on('mouseenter', l, ()=>map.getCanvas().style.cursor='pointer');
     map.on('mouseleave', l, ()=>map.getCanvas().style.cursor='');
   });
   map.on('click', e=>{
-    const f=map.queryRenderedFeatures(e.point,{layers:['bldg-fill','bldg-3d']});
+    const f=map.queryRenderedFeatures(e.point,{layers:['osm-bldg-3d']});
     if (!f.length) { if(activePopup){activePopup.remove();activePopup=null;} }
   });
 });
 
-// ── Building click ──────────────────────────────────────
-function onBldgClick(e) {
+// ── OSM Building click ──────────────────────────────────────
+function onOSMBldgClick(e) {
   const props=e.features[0].properties;
-  const b=BUILDINGS.find(x=>x.id===props.id);
-  if (!b) return;
-  selBuilding=b;
+  const name=props.name||'Unknown Building';
+  const levels=props.levels||'?';
+  
   if (activePopup) activePopup.remove();
   activePopup=new maplibregl.Popup({offset:28,closeButton:false,maxWidth:'240px'})
-    .setLngLat([b.cx,b.cy])
+    .setLngLat(e.lngLat)
     .setHTML(`
-      <div class="pn">${b.name}</div>
-      <div class="pt">${b.abbr} · ${cap(b.type)} · ${b.floors}F</div>
+      <div class="pn">${name}</div>
+      <div class="pt">${levels} levels · ${props.building||'Building'}</div>
       <div class="pa">
-        <button class="pb n" onclick="navigateTo('${b.id}')">🧭 Directions</button>
-        <button class="pb i" onclick="openBldgPanel('${b.id}')">ℹ Info</button>
+        <button class="pb i" onclick="closePopup()">✕ Close</button>
       </div>`)
     .addTo(map);
+}
+
+function closePopup() {
+  if(activePopup){activePopup.remove();activePopup=null;}
 }
 
 // ═══════════════════════════════════════════════════════
@@ -816,8 +798,6 @@ document.addEventListener('click',e=>{ if(!e.target.closest('#search-bar')) sr.s
 function toggle3D() {
   is3D=!is3D;
   map.setPitch(is3D?48:0);
-  map.setLayoutProperty('bldg-3d','visibility',is3D?'visible':'none');
-  map.setLayoutProperty('bldg-fill','visibility',is3D?'none':'visible');
   const btn=$('btn3d');
   btn.textContent=is3D?'3D':'2D';
   btn.classList.toggle('active-btn',is3D);
