@@ -272,133 +272,70 @@ const TYPE_ICON = {
   student:'🎓', housing:'🏠', engineering:'⚙️', arts:'🎨', health:'🏥', support:'🔧'
 };
 
-// Campus center ~ 30.0417, -94.0736  (4400 S ML King Jr Pkwy, Beaumont TX 77705)
-const BUILDINGS = [
-  { id:'plummer',   name:'Plummer Administration Building', abbr:'ADMIN',  type:'admin',
-    cx:-94.0733, cy:30.0427, w:68,  h:46, floors:3,
-    desc:'Main administrative hub: President\'s Office, Registrar, Financial Aid, and Admissions.',
-    hours:'Mon–Fri  8:00 AM – 5:00 PM' },
+// BUILDING_INDEX is populated dynamically from LamarCampus.geojson after load
+let BUILDING_INDEX = {};
 
-  { id:'library',   name:'Mary and John Gray Library',       abbr:'LIB',   type:'library',
-    cx:-94.0743, cy:30.0412, w:92,  h:66, floors:5,
-    desc:'Central library with vast print/digital collections, private study rooms, and tech labs.',
-    hours:'Mon–Thu  7:30 AM – 11:00 PM  |  Fri–Sun  10:00 AM – 8:00 PM' },
+function inferBuildingType(name, osmType) {
+  if (osmType === 'dormitory' || osmType === 'residential') return 'housing';
+  if (osmType === 'retail') return 'student';
+  const n = (name || '').toLowerCase();
+  if (/engineer|maes|technical|petroleum|process tech/.test(n)) return 'engineering';
+  if (/library/.test(n)) return 'library';
+  if (/art|music|theater|theatre|recital|dishman/.test(n)) return 'arts';
+  if (/health|nursing|speech|hearing|recreational sports|athletic/.test(n)) return 'health';
+  if (/plummer|admin|human resources|police|president/.test(n)) return 'admin';
+  if (/setzer|student center/.test(n)) return 'student';
+  if (/recreation|sports|montagne/.test(n)) return 'recreation';
+  return 'academic';
+}
 
-  { id:'setzer',    name:'Setzer Student Center',            abbr:'SSC',   type:'student',
-    cx:-94.0736, cy:30.0398, w:78,  h:56, floors:2,
-    desc:'Campus life hub: dining, Cardinal Café, student orgs, recreation, and event spaces.',
-    hours:'Mon–Fri  7:00 AM – 10:00 PM  |  Sat–Sun  10:00 AM – 8:00 PM' },
+function polygonCentroid(geometry) {
+  const ring = geometry.type === 'Polygon'
+    ? geometry.coordinates[0]
+    : geometry.coordinates[0][0];
+  const n = ring.length - 1;
+  let lng = 0, lat = 0;
+  for (let i = 0; i < n; i++) { lng += ring[i][0]; lat += ring[i][1]; }
+  return [lng / n, lat / n];
+}
 
-  { id:'montagne',  name:'Montagne Center',                  abbr:'MC',    type:'recreation',
-    cx:-94.0790, cy:30.0447, w:135, h:105,floors:1,
-    desc:'Multi-purpose arena for Cardinals basketball, volleyball, concerts, and convocations.',
-    hours:'Mon–Fri  8:00 AM – 9:00 PM  |  Sat–Sun  10:00 AM – 6:00 PM' },
+function buildBuildingIndex(geojson) {
+  BUILDING_INDEX = {};
+  const labelFeatures = [];
 
-  { id:'lucas',     name:'Lucas Engineering Building',       abbr:'LENG',  type:'engineering',
-    cx:-94.0707, cy:30.0418, w:78,  h:54, floors:4,
-    desc:'Chemical, Civil, and Mechanical Engineering departments with advanced research labs.',
-    hours:'Mon–Fri  7:00 AM – 9:00 PM' },
+  geojson.features.forEach(feat => {
+    const props = feat.properties;
+    const name = props.name;
+    if (!name || !feat.geometry) return;
+    const centroid = polygonCentroid(feat.geometry);
+    const type = inferBuildingType(name, props.building);
+    const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-  { id:'cherry',    name:'Cherry Engineering Building',      abbr:'CENG',  type:'engineering',
-    cx:-94.0691, cy:30.0427, w:70,  h:50, floors:3,
-    desc:'Electrical Engineering, Computer Science, and Information Technology programs.',
-    hours:'Mon–Fri  7:00 AM – 9:00 PM' },
+    BUILDING_INDEX[id] = {
+      id, name, type,
+      abbr: id.split('-').map(w => w[0]).join('').toUpperCase().slice(0, 6),
+      cx: centroid[0], cy: centroid[1],
+      floors: props.levels ? +props.levels : (type === 'housing' ? 4 : 2),
+      desc: `${name} on the Lamar University campus.`,
+      hours: type === 'housing' ? 'Open 24 hours' : 'Mon–Fri  8:00 AM – 5:00 PM',
+    };
 
-  { id:'klement',   name:'Karl Klement Hall',                abbr:'KLM',   type:'academic',
-    cx:-94.0723, cy:30.0405, w:82,  h:56, floors:4,
-    desc:'Science building for Biology, Chemistry, Physics, and Earth & Space Sciences.',
-    hours:'Mon–Fri  7:30 AM – 8:00 PM' },
+    // Enrich feature properties for data-driven map styling
+    props._id = id;
+    props._type = type;
+    feat.id = id;
 
-  { id:'bevil',     name:'Bevil Building',                   abbr:'BEV',   type:'academic',
-    cx:-94.0771, cy:30.0393, w:88,  h:60, floors:4,
-    desc:'College of Education: teacher prep, educational leadership, and counseling programs.',
-    hours:'Mon–Fri  8:00 AM – 7:00 PM' },
+    // Centroid point for label layer (avoids 3D-extrusion occlusion)
+    labelFeatures.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: centroid },
+      properties: { name, _id: id }
+    });
+  });
 
-  { id:'nursing',   name:'Nursing Building',                 abbr:'NURS',  type:'health',
-    cx:-94.0720, cy:30.0388, w:66,  h:50, floors:3,
-    desc:'State-of-the-art nursing program facilities with clinical simulation labs.',
-    hours:'Mon–Fri  7:30 AM – 6:00 PM' },
-
-  { id:'comm',      name:'Communication Building',           abbr:'COMM',  type:'academic',
-    cx:-94.0765, cy:30.0431, w:70,  h:50, floors:3,
-    desc:'Communication, Media, and Fine Arts Communication program classrooms and studios.',
-    hours:'Mon–Fri  8:00 AM – 6:00 PM' },
-
-  { id:'reaud',     name:'Reaud Business Building',          abbr:'BUS',   type:'academic',
-    cx:-94.0761, cy:30.0400, w:82,  h:60, floors:3,
-    desc:'AACSB-accredited College of Business: Accounting, Finance, Management, and Marketing.',
-    hours:'Mon–Fri  8:00 AM – 7:00 PM' },
-
-  { id:'wimberly',  name:'Wimberly Art Building',            abbr:'ART',   type:'arts',
-    cx:-94.0783, cy:30.0436, w:64,  h:46, floors:2,
-    desc:'Fine Arts studios and galleries for Painting, Graphic Design, and Photography.',
-    hours:'Mon–Fri  8:00 AM – 6:00 PM' },
-
-  { id:'brooks',    name:'Brooks-Shivers Theatre',           abbr:'THT',   type:'arts',
-    cx:-94.0752, cy:30.0410, w:60,  h:44, floors:1,
-    desc:'Main campus performance venue for Theatre, Opera, and Music Department productions.',
-    hours:'By performance schedule' },
-
-  { id:'parker',    name:'Carl Parker Building',             abbr:'CPB',   type:'academic',
-    cx:-94.0747, cy:30.0422, w:70,  h:50, floors:4,
-    desc:'Social Sciences: Political Science, History, Psychology, and Sociology departments.',
-    hours:'Mon–Fri  7:30 AM – 7:00 PM' },
-
-  { id:'sears',     name:'Sears Hall (Residence)',           abbr:'SRS',   type:'housing',
-    cx:-94.0711, cy:30.0441, w:54,  h:68, floors:6,
-    desc:'On-campus residence hall with single and double occupancy rooms.',
-    hours:'Open 24 hours' },
-
-  { id:'maes',      name:'MÄES Building',                   abbr:'MAES',  type:'engineering',
-    cx:-94.0695, cy:30.0434, w:64,  h:46, floors:3,
-    desc:'Mechanical and Aerospace Engineering research labs, wind tunnels, and robotics.',
-    hours:'Mon–Fri  7:00 AM – 8:00 PM' },
-
-  { id:'hhp',       name:'Health & Human Performance',       abbr:'HHP',   type:'health',
-    cx:-94.0723, cy:30.0445, w:70,  h:52, floors:2,
-    desc:'Fitness center, gymnasium, and classrooms for Kinesiology and HHP programs.',
-    hours:'Mon–Fri  6:00 AM – 10:00 PM  |  Sat–Sun  8:00 AM – 8:00 PM' },
-
-  { id:'galloway',  name:'Galloway Business & Engineering',  abbr:'GBE',   type:'academic',
-    cx:-94.0744, cy:30.0388, w:68,  h:50, floors:3,
-    desc:'Interdisciplinary programs bridging business and technology. Includes active labs.',
-    hours:'Mon–Fri  8:00 AM – 6:00 PM' },
-
-  { id:'herring',   name:'Herring Hall',                     abbr:'HER',   type:'academic',
-    cx:-94.0729, cy:30.0431, w:60,  h:44, floors:2,
-    desc:'Lecture halls and faculty offices for interdisciplinary social science programs.',
-    hours:'Mon–Fri  8:00 AM – 6:00 PM' },
-
-  { id:'spindletop',name:'Spindletop-Gladys City Museum',    abbr:'SGM',   type:'academic',
-    cx:-94.0697, cy:30.0408, w:58,  h:42, floors:1,
-    desc:'Museum celebrating the historic Spindletop oil boom and Beaumont heritage.',
-    hours:'Tue–Sun  10:00 AM – 5:00 PM' },
-
-  { id:'physical',  name:'Physical Plant',                   abbr:'PP',    type:'support',
-    cx:-94.0753, cy:30.0461, w:85,  h:55, floors:1,
-    desc:'Facilities Management: maintenance, utilities, and campus operations center.',
-    hours:'Mon–Fri  7:00 AM – 4:00 PM' },
-
-  { id:'dorm1',     name:'Dormitory A',                abbr:'DORM-A', type:'housing',
-    cx:-94.0715, cy:30.0435, w:60,  h:80, floors:8,
-    desc:'Student residence hall with modern amenities and study lounges.',
-    hours:'Open 24 hours' },
-
-  { id:'dorm2',     name:'Dormitory B',                abbr:'DORM-B', type:'housing',
-    cx:-94.0705, cy:30.0445, w:55,  h:75, floors:7,
-    desc:'On-campus housing with community spaces and recreational areas.',
-    hours:'Open 24 hours' },
-
-  { id:'gym',       name:'University Gymnasium',       abbr:'GYM',    type:'recreation',
-    cx:-94.0755, cy:30.0455, w:90,  h:110,floors:2,
-    desc:'Main gymnasium for basketball, volleyball, and fitness activities.',
-    hours:'Mon–Fri  6:00 AM – 10:00 PM  |  Sat–Sun  8:00 AM – 8:00 PM' },
-
-  { id:'parking1',  name:'Main Parking Garage',        abbr:'PARK-1', type:'support',
-    cx:-94.0740, cy:30.0465, w:85,  h:65, floors:4,
-    desc:'Multi-level parking facility for students and visitors.',
-    hours:'Open 24 hours' },
-];
+  console.log('Building index entries:', Object.keys(BUILDING_INDEX).length);
+  return { type: 'FeatureCollection', features: labelFeatures };
+}
 
 // ═══════════════════════════════════════════════════════
 //  ROUTING GRAPH FROM OSM PATHS (lamar_paths.geojson)
@@ -409,6 +346,7 @@ let NODE_COORD = {};
 let coordToNode = {};
 let nodeIdCounter = 0;
 const SNAP_DIST = 4.5; // meters
+let highlightedBuildingId = null;
 
 function getNodeId(coord) {
   const key = coord[0].toFixed(6)+','+coord[1].toFixed(6);
@@ -593,12 +531,14 @@ map.on('load', async ()=>{
   // ── OSM Buildings (Loaded from GeoJSON file) ──
   const osmBuildingsRes = await fetch('LamarCampus.geojson');
   const osmBuildingsData = await osmBuildingsRes.json();
-  const pathsRes = await fetch('lamar_paths.geojson');
+  const labelGeoJSON = buildBuildingIndex(osmBuildingsData); // populate BUILDING_INDEX + enrich props
+  const pathsRes = await fetch('lamar_paths_1.geojson');
   const pathsData = await pathsRes.json();
   buildRoutingGraph(pathsData);
-  map.addSource('osm-buildings', { type:'geojson', data:osmBuildingsData });
+  map.addSource('osm-buildings',  { type:'geojson', data:osmBuildingsData });
+  map.addSource('bldg-label-pts', { type:'geojson', data:labelGeoJSON });
   map.addSource('paths', { type:'geojson', data: pathsData });
-  map.addSource('route',    { type:'geojson', data:{type:'FeatureCollection',features:[]} });
+  map.addSource('route', { type:'geojson', data:{type:'FeatureCollection',features:[]} });
 
   // ── Paths (from external GeoJSON) ──
   map.addLayer({ id:'paths', type:'line', source:'paths',
@@ -612,7 +552,11 @@ map.on('load', async ()=>{
     type:'fill-extrusion',
     source:'osm-buildings',
     paint:{
-      'fill-extrusion-color':'#C8102E',
+      'fill-extrusion-color':['match',['get','_type'],
+        'academic','#C8102E','admin','#8B0000','library','#1565C0',
+        'recreation','#2E7D32','student','#E65100','housing','#6A1B9A',
+        'engineering','#BF360C','arts','#AD1457','health','#00838F',
+        '#546E7A'],
       'fill-extrusion-height':['coalesce',['*',['to-number',['get','levels']],4.5],12],
       'fill-extrusion-base':0,
       'fill-extrusion-opacity':0.9
@@ -627,36 +571,16 @@ map.on('load', async ()=>{
     paint:{'line-color':'rgba(255,255,255,0.8)','line-width':1.4}
   });
 
-  // ── OSM Building labels (FIXED & WORKING) ──
   map.addLayer({
-    id:'osm-bldg-labels',
-    type:'symbol',
+    id:'osm-bldg-highlight',
+    type:'fill-extrusion',
     source:'osm-buildings',
-    minzoom:13,
-    layout:{
-      'text-field': [
-        'coalesce',
-        ['get','name'],
-        ['get','abbr'],
-        ['get','@id']
-      ],
-      'text-size': 12,
-      'symbol-placement': 'point',
-      'text-anchor': 'center',
-      'text-allow-overlap': true,
-      'text-ignore-placement': true,
-      'text-pitch-alignment': 'viewport',
-      'text-rotation-alignment': 'viewport'
-    },
     paint:{
-      'text-color':'#ffffff',
-      'text-halo-color':'rgba(0,0,0,0.7)',
-      'text-halo-width':1.6
-    }
+      'fill-extrusion-color':'#FFD600',
+      'fill-extrusion-opacity':0.22
+    },
+    filter:['==',['get','_id'],'']
   });
-
-  console.log('Labels layer added:', map.getLayer('osm-bldg-labels'));
-  console.log('Labels visibility:', map.getLayoutProperty('osm-bldg-labels', 'visibility'));
 
   // ── Navigation route ──
   map.addLayer({ id:'route-shadow', type:'line', source:'route',
@@ -671,6 +595,30 @@ map.on('load', async ()=>{
     filter:['==','$type','Point'],
     paint:{'circle-radius':8,'circle-color':'#00C853','circle-stroke-color':'#fff','circle-stroke-width':2}
   });
+
+  // ── Building labels — added last so they render above all 3D layers ──
+  map.addLayer({
+    id:'osm-bldg-labels',
+    type:'symbol',
+    source:'bldg-label-pts',
+    layout:{
+      'text-field':['get','name'],
+      'text-size':11,
+      'text-anchor':'center',
+      'text-max-width':8,
+      'text-allow-overlap':true,
+      'text-ignore-placement':true,
+      'text-pitch-alignment':'viewport',
+      'text-rotation-alignment':'viewport',
+    },
+    paint:{
+      'text-color':'#ffffff',
+      'text-halo-color':'rgba(0,0,0,0.75)',
+      'text-halo-width':1.8
+    }
+  });
+
+  map.moveLayer('osm-bldg-labels');
 
   // ── Interactions ──
   ['osm-bldg-3d'].forEach(l=>{
@@ -687,15 +635,19 @@ map.on('load', async ()=>{
 // ── OSM Building click ──────────────────────────────────────
 function onOSMBldgClick(e) {
   const props=e.features[0].properties;
+  const id=props._id;
+  if (id && BUILDING_INDEX[id]) {
+    openBldgPanel(id);
+    return;
+  }
+  // fallback for unnamed features
   const name=props.name||'Unknown Building';
-  const levels=props.levels||'?';
-  
   if (activePopup) activePopup.remove();
   activePopup=new maplibregl.Popup({offset:28,closeButton:false,maxWidth:'240px'})
     .setLngLat(e.lngLat)
     .setHTML(`
       <div class="pn">${name}</div>
-      <div class="pt">${levels} levels · ${props.building||'Building'}</div>
+      <div class="pt">${props.building||'Building'}</div>
       <div class="pa">
         <button class="pb i" onclick="closePopup()">✕ Close</button>
       </div>`)
@@ -711,8 +663,9 @@ function closePopup() {
 // ═══════════════════════════════════════════════════════
 
 function openBldgPanel(id) {
-  const b=BUILDINGS.find(x=>x.id===id);
+  const b=BUILDING_INDEX[id];
   if (!b) return;
+  highlightBuilding(id);
   selBuilding=b;
   _show('bi'); _hide('np');
   $('bi-name').textContent=b.name;
@@ -731,8 +684,20 @@ function closePanel() {
   _hide('bi'); _hide('np');
   $('peek-label').textContent='Tap a building for details';
   selBuilding=null;
+  highlightBuilding(null);
 }
 function togglePanel() { $('panel').classList.toggle('open'); }
+
+function highlightBuilding(id) {
+  if (!map.getLayer('osm-bldg-highlight')) return;
+  if (highlightedBuildingId === id) return;
+  highlightedBuildingId = id;
+  if (id) {
+    map.setFilter('osm-bldg-highlight', ['==',['get','_id'], id]);
+  } else {
+    map.setFilter('osm-bldg-highlight', ['==',['get','_id'], '']);
+  }
+}
 
 // ═══════════════════════════════════════════════════════
 //  NAVIGATION
@@ -740,7 +705,7 @@ function togglePanel() { $('panel').classList.toggle('open'); }
 
 function navigateTo(destId) {
   if (activePopup){activePopup.remove();activePopup=null;}
-  const dest=BUILDINGS.find(b=>b.id===destId);
+  const dest=BUILDING_INDEX[destId];
   if (!dest) return;
   navDest=dest;
 
@@ -819,7 +784,7 @@ const si=$('search-input'), sr=$('search-results');
 si.addEventListener('input', e=>{
   const q=e.target.value.trim().toLowerCase();
   if (!q) { sr.style.display='none'; return; }
-  const matches=BUILDINGS.filter(b=>
+  const matches=Object.values(BUILDING_INDEX).filter(b=>
     b.name.toLowerCase().includes(q)||b.abbr.toLowerCase().includes(q)||
     b.type.toLowerCase().includes(q)||b.desc.toLowerCase().includes(q)
   ).slice(0,7);
@@ -834,8 +799,11 @@ si.addEventListener('input', e=>{
 
 function selectResult(id) {
   sr.style.display='none'; si.value='';
-  openBldgPanel(id);
-  if(activePopup){activePopup.remove();activePopup=null;}
+  const b = BUILDING_INDEX[id];
+  if (b) {
+    highlightBuilding(id);
+    openBldgPanel(id);
+  }
 }
 
 map.on('click',()=>{ sr.style.display='none'; });
